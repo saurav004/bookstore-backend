@@ -130,3 +130,5 @@ dmypy.json
 
 #migrations
 *migrations
+
+.idea
