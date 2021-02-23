@@ -1,8 +1,7 @@
 import jwt
-from django.contrib.auth import authenticate, login
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
-from rest_framework import generics, status, views
+from rest_framework import generics, status
 from .serializers import RegisterSerializer, EmailVerificationSerializer, LoginSerializer
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -21,8 +20,8 @@ class RegisterView(generics.GenericAPIView):
     def post(self, request):
         """
         Objective: Register a new User
-        :param request:
-        :return:
+        :param request: Email, username, password, Mobile Number
+        :return: user detail and success message
         """
         user = request.data
         serializer = self.serializer_class(data=user)
@@ -37,8 +36,10 @@ class RegisterView(generics.GenericAPIView):
             email_body = 'Hi \n' + user.username + ' Use the link below to verify your email \n' + absurl
             data = {'email_body': email_body, 'to_email': user.email, 'email_subject': 'Verify you email'}
             Util.send_email(data)
-            return Response(user_data, status=status.HTTP_201_CREATED)
-        return Response(status=status.HTTP_200_OK, data={'msg': serializer.errors})
+            return Response({"message": "user created", "data": user_data}, status=status.HTTP_201_CREATED)
+        return Response(
+            {"status": status.HTTP_400_BAD_REQUEST, "message": None, "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST, )
 
 
 class VerifyEmail(generics.GenericAPIView):
@@ -49,12 +50,18 @@ class VerifyEmail(generics.GenericAPIView):
 
     @swagger_auto_schema(manual_parameters=[token_param_config])
     def get(self, request):
+        """
+        Objective:  To verify if User registered with their own Email id
+        :param request: token
+        :return: verification message if verified or error if not verified
+        """
         token = request.GET.get('token')
         try:
             payload = jwt.decode(token, settings.SECRET_KEY)
             user = User.objects.get(id=payload['user_id'])
             if not user.is_verified:
                 user.is_verified = True
+                user.is_active = True
                 user.save()
                 return Response(status=status.HTTP_200_OK, data={"msg": "successfully activated"})
         except jwt.ExpiredSignatureError:
@@ -62,22 +69,21 @@ class VerifyEmail(generics.GenericAPIView):
         except jwt.exceptions.DecodeError:
             return Response({'error': 'Invalid Token'}, status=status.HTTP_400_BAD_REQUEST)
         else:
-            return Response({'error': 'Unknown Error'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'Something went wrong, try again later'},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class LoginAPIView(generics.GenericAPIView):
     """
-        API to login with valid credentials
+    Objective:  To login User
+    :param request: Email and password
+    :return: access token and refresh token
     """
     serializer_class = LoginSerializer
 
     def post(self, request):
         """ Take user credentials and authenticate it to login  """
-
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         user_data = serializer.data
-        user = authenticate(email=user_data['email'], password=user_data['password'])
-        user_data['username'] = user.username
-        login(request, user)
-        return Response(user_data, status=status.HTTP_200_OK)
+        return Response(data=user_data, status=status.HTTP_200_OK)
