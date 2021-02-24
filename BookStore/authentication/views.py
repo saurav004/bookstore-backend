@@ -11,6 +11,7 @@ from django.contrib.sites.shortcuts import get_current_site
 from django.conf import settings
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from .tasks import send_email
 
 
 class RegisterView(generics.GenericAPIView):
@@ -35,7 +36,7 @@ class RegisterView(generics.GenericAPIView):
             absurl = 'http://' + current_site + relative_link + "?token=" + str(token)
             email_body = 'Hi \n' + user.username + ' Use the link below to verify your email \n' + absurl
             data = {'email_body': email_body, 'to_email': user.email, 'email_subject': 'Verify you email'}
-            Util.send_email(data)
+            send_email.delay(data)
             return Response({"message": "user created", "data": user_data}, status=status.HTTP_201_CREATED)
         return Response(
             {"status": status.HTTP_400_BAD_REQUEST, "message": None, "errors": serializer.errors},
