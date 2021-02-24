@@ -2,7 +2,8 @@ import jwt
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics, status
-from .serializers import RegisterSerializer, EmailVerificationSerializer, LoginSerializer
+from .serializers import RegisterSerializer, EmailVerificationSerializer, LoginSerializer, ResetPasswordEmailSerializer, \
+    NewPasswordSerializer
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
@@ -88,3 +89,50 @@ class LoginAPIView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         user_data = serializer.data
         return Response(data=user_data, status=status.HTTP_200_OK)
+
+
+class ResetPassword(generics.GenericAPIView):
+    serializer_class = ResetPasswordEmailSerializer
+
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        if serializer.is_valid(raise_exception=True):
+            user_data = serializer.data
+            user = User.objects.get(email=user_data['email'])
+            password = user_data['password']
+            current_site = get_current_site(request).domain
+            relative_link = reverse('new_pass')
+            token = RefreshToken.for_user(user).access_token
+            email_body = "hii \n" + user.username + "Use the link below to reset password: \n" + 'http://' + current_site + relative_link + "?token=" + str(
+                token) + "&password=" + password
+            data = {'email_body': email_body, 'to_email': user.email, 'email_subject': "Reset password Link"}
+            send_email.delay(data)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(
+            {"status": status.HTTP_400_BAD_REQUEST, "message": None, "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST, )
+
+
+class NewPassword(generics.GenericAPIView):
+    serializer_class = NewPasswordSerializer
+    token_param_config = openapi.Parameter('token', in_=openapi.IN_QUERY, description='Description',
+                                           type=openapi.TYPE_STRING)
+    password_param_config = openapi.Parameter('password', in_=openapi.IN_QUERY, description='Description',
+                                              type=openapi.TYPE_STRING)
+
+    @swagger_auto_schema(manual_parameters=[token_param_config, password_param_config])
+    def get(self, request):
+        token = request.GET.get('token')
+        password = request.GET.get('password')
+
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY)
+            user = User.objects.get(id=payload['user_id'])
+            user.set_password(password)
+            user.save()
+
+            return Response({'email': 'New password is created'}, status=status.HTTP_200_OK)
+        except jwt.ExpiredSignatureError:
+            return Response({'error': 'Link is Expired'}, status=status.HTTP_400_BAD_REQUEST)
+        except jwt.exceptions.DecodeError:
+            return Response({'error': 'Invalid Token'}, status=status.HTTP_400_BAD_REQUEST)
