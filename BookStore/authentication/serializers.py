@@ -50,7 +50,6 @@ class LoginSerializer(serializers.ModelSerializer):
             raise AuthenticationFailed("Account is inactive, contact admin")
         if not user.is_verified:
             raise AuthenticationFailed("Email not verified")
-
         return {
             "email": user.email,
             "username": user.username,
@@ -76,16 +75,45 @@ class ResetPasswordEmailSerializer(serializers.ModelSerializer):
 
 
 class NewPasswordSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(max_length=68, min_length=6)
-    password2 = serializers.CharField(max_length=68, min_length=6)
+    new_password = serializers.CharField(max_length=68, min_length=8)
+    token = serializers.CharField(max_length=200, min_length=6)
 
     class Meta:
         model = User
-        fields = ['password', 'new_password']
+        fields = ['new_password', 'token']
 
     def validate(self, attrs):
-        password = attrs.get('password', '')
+        token = attrs.get('token')
         new_password = attrs.get('new_password', '')
-        if password == new_password:
-            raise serializers.ValidationError("Old Password and New Password should not match!!")
+        if token is None:
+            raise serializers.ValidationError("token invalid")
+        if new_password is None:
+            raise serializers.ValidationError("new password cannot be empty")
         return attrs
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    current_password = serializers.CharField(max_length=20, min_length=6)
+    new_password = serializers.CharField(max_length=20, min_length=6)
+
+    def validate(self, attrs):
+        current_password = attrs.get('current_password', '')
+        new_password = attrs.get('current_password', '')
+        if current_password is None:
+            raise serializers.ValidationError("current password cannot be empty")
+        if new_password is None:
+            raise serializers.ValidationError("new password cannot be empty")
+        return attrs
+
+
+class LogoutSerializer(serializers.ModelSerializer):
+    token = serializers.CharField(max_length=200, min_length=6)
+
+    class Meta:
+        model = User
+        fields = ['token']
+
+    def validate(self, data):
+        if data.get('token') is None:
+            raise serializers.ValidationError("Token is not valid")
+        return data
