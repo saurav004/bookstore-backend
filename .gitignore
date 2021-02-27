@@ -132,3 +132,6 @@ dmypy.json
 *migrations
 
 .idea
+
+logs
+logger.txt

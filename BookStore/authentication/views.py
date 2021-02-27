@@ -49,17 +49,17 @@ class RegisterView(generics.GenericAPIView):
                 email_body = 'Hi \n' + user.username + ' Use the link below to verify your email \n' + absurl
                 data = {'email_body': email_body, 'to_email': user.email, 'email_subject': 'Verify you email'}
                 send_email.delay(data)
-                return Response(data={"message": "user created", "errors": None, "data": user_data},
+                return Response({'data': 'user created'},
                                 status=status.HTTP_201_CREATED)
             logger.debug(serializer.errors)
-            return Response(data={"message": None, "errors": serializer.errors, "data": None},
+            return Response({"data": serializer.errors},
                             status=status.HTTP_400_BAD_REQUEST, )
         except ValidationError:
-            return Response(data={"message": None, "errors": serializer.errors, "data": None},
+            return Response({"data": serializer.errors},
                             status=status.HTTP_400_BAD_REQUEST, )
         except Exception as e:
             logger.exception(e)
-            return Response(data={"message": None, "errors": 'Something went wrong, try again later', 'data': None},
+            return Response({"data": 'Something went wrong, try again later'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -84,16 +84,16 @@ class VerifyEmail(generics.GenericAPIView):
                 user.is_verified = True
                 user.is_active = True
                 user.save()
-                return Response(status=status.HTTP_200_OK, data={"msg": "successfully activated"})
+                return Response({"data": "successfully activated"}, status=status.HTTP_200_OK)
         except jwt.ExpiredSignatureError:
-            return Response(data={"message": None, "errors": 'Activation Expired', 'data': None},
+            return Response({"data": 'Activation Token Expired'},
                             status=status.HTTP_400_BAD_REQUEST)
         except jwt.exceptions.DecodeError:
-            return Response(data={"message": None, "errors": 'Invalid Token', 'data': None},
+            return Response({"data": 'Invalid Token'},
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.exception(e)
-            return Response(data={"message": None, "errors": 'Something went wrong, try again later', 'data': None},
+            return Response({"data": 'Something went wrong, try again later'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -113,8 +113,9 @@ class LoginAPIView(generics.GenericAPIView):
         redis_instance.hmset('user_token', {"auth": str(user_data['token'])})
         redis_instance.expire(user_data['email'], time=datetime.timedelta(days=2))
         logger.info(redis_instance.hmget(user_data['email'], 'auth'))
-        return Response(data={"message": 'LogIn successful', "errors": None, 'data': user_data},
-                        status=status.HTTP_200_OK)
+        response = Response({'data': f'You are logged in successfully'}, status=status.HTTP_200_OK,
+                            headers={'Authorization': user_data['token']})
+        return response
 
 
 class ResetPassword(generics.GenericAPIView):
@@ -132,9 +133,9 @@ class ResetPassword(generics.GenericAPIView):
             email_body = "hii \n" + user.username + "Use the link below to reset password: \n" + absurl
             data = {'email_body': email_body, 'to_email': user.email, 'email_subject': "Reset password Link"}
             send_email.delay(data)
-            return Response(data={"message": 'link sent to email', "errors": None, 'data': serializer.data},
+            return Response({"data": serializer.data},
                             status=status.HTTP_200_OK)
-        return Response(data={"message": None, "errors": serializer.errors, 'data': None},
+        return Response({"data": serializer.errors},
                         status=status.HTTP_400_BAD_REQUEST, )
 
 
@@ -150,17 +151,17 @@ class NewPassword(generics.GenericAPIView):
             user = User.objects.get(id=payload['user_id'])
             user.set_password(new_password)
             user.save()
-            return Response(data={'message': 'New password is created', 'error': None, 'data': None},
+            return Response({'data': 'New password is created'},
                             status=status.HTTP_200_OK)
         except jwt.ExpiredSignatureError:
-            return Response(data={'message': None, 'error': 'Link is Expired', 'data': None},
+            return Response({'data': 'Link is Expired'},
                             status=status.HTTP_400_BAD_REQUEST)
         except jwt.exceptions.DecodeError:
-            return Response(data={'message': None, 'error': 'Invalid Token', 'data': None},
+            return Response({'data': 'Invalid Token'},
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.exception(e)
-            return Response(data={'message': 'Something went wrong, contact admin', 'error': None, 'data': None},
+            return Response({'data': 'Something went wrong, contact admin'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -183,21 +184,21 @@ class ChangeUserPassword(generics.GenericAPIView):
                 user.set_password(raw_password=serializer.data.get('new_password'))
                 user.save()
                 logger.info('password changed successfully')
-                return Response(data={'message': 'password changed successfully', 'error': None, 'data': None},
+                return Response({'data': 'password changed successfully'},
                                 status=status.HTTP_200_OK)
             logger.info('Current Password is invalid')
             return Response(
-                {'message': 'Current Password is invalid, enter correct password', 'error': None, 'data': None},
+                {'data': 'Current Password is invalid, enter correct password'},
                 status=status.HTTP_401_UNAUTHORIZED)
         except jwt.ExpiredSignatureError:
-            return Response(data={'message': None, 'error': 'token expired login again', 'data': None},
+            return Response({'data': 'token expired login again'},
                             status=status.HTTP_400_BAD_REQUEST)
         except jwt.exceptions.DecodeError:
-            return Response(data={'message': None, 'error': 'Invalid Token', 'data': None},
+            return Response({'data': 'Invalid Token'},
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.exception(e)
-            return Response(data={'message': None, 'error': 'Something went wrong, contact admin', 'data': None},
+            return Response({'data': 'Something went wrong, contact admin'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -216,22 +217,21 @@ class LogoutUser(generics.GenericAPIView):
             if user:
                 if redis_instance.hmget('user_token', user.email):
                     redis_instance.delete(user.email)
-                    logger.info(f'token deleted {redis_instance.delete(user.email)}')
+                    logger.info(f"token deleted {redis_instance.delete(user.email)}")
                     logger.info('logout successful')
-                    return Response(
-                        data={"message": 'you are logged out successfully', 'errors': None, 'data': None},
-                        status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"data": 'you are logged out successfully'},
+                                    status=status.HTTP_400_BAD_REQUEST)
                 else:
                     return Response(
-                        data={"message": None, "errors": 'user need to be logged in to logout', 'data': None},
+                        {"data": 'user needs to be logged in to logout'},
                         status=status.HTTP_400_BAD_REQUEST)
         except jwt.ExpiredSignatureError:
-            return Response(data={"message": None, "errors": 'token Expired', 'data': None},
+            return Response({"data": 'token Expired'},
                             status=status.HTTP_400_BAD_REQUEST)
         except jwt.exceptions.DecodeError:
-            return Response(data={"message": None, "errors": 'Invalid Token', 'data': None},
+            return Response({"data": 'Invalid Token'},
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.exception(e)
-            return Response(data={"message": None, "errors": 'Something went wrong, try again later', 'data': None},
+            return Response({"data": 'Something went wrong, try again later'},
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
