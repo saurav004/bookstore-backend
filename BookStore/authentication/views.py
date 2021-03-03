@@ -107,15 +107,19 @@ class LoginAPIView(generics.GenericAPIView):
 
     def post(self, request):
         """ Take user credentials and authenticate it to login  """
-        serializer = self.serializer_class(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user_data = serializer.data
-        redis_instance.hmset('user_token', {"auth": str(user_data['token'])})
-        redis_instance.expire(user_data['email'], time=datetime.timedelta(days=2))
-        logger.info(redis_instance.hmget(user_data['email'], 'auth'))
-        response = Response({'data': f'You are logged in successfully'}, status=status.HTTP_200_OK,
-                            headers={'Authorization': user_data['token']})
-        return response
+        try:
+            serializer = self.serializer_class(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            user_data = serializer.data
+            redis_instance.hmset('user_token', {"auth": str(user_data['token'])})
+            redis_instance.expire(user_data['email'], time=datetime.timedelta(days=2))
+            logger.info(redis_instance.hmget(user_data['email'], 'auth'))
+            response = Response({'data': f'You are logged in successfully'}, status=status.HTTP_200_OK,
+                                headers={'Authorization': user_data['token'], 'Access-Control-Expose-Headers': 'Authorization'})
+            return response
+        except Exception as e:
+            return Response({"data": "unauthorized"},
+                            status=status.HTTP_401_UNAUTHORIZED)
 
 
 class ResetPassword(generics.GenericAPIView):
@@ -126,28 +130,25 @@ class ResetPassword(generics.GenericAPIView):
         if serializer.is_valid(raise_exception=True):
             user_data = serializer.data
             user = User.objects.get(email=user_data['email'])
-            current_site = get_current_site(request).domain
-            relative_link = reverse('new_password')
+            current_site = "http://127.0.0.1:4200"
             token = RefreshToken.for_user(user).access_token
-            absurl = 'http://' + current_site + relative_link + "?token=" + str(token)
-            email_body = "hii \n" + user.username + "Use the link below to reset password: \n" + absurl
+            absurl = current_site + "/new_password/" + str(token)
+            email_body = "hii \n" + user.username + " Use the link below to reset password: \n" + absurl
             data = {'email_body': email_body, 'to_email': user.email, 'email_subject': "Reset password Link"}
             send_email.delay(data)
             return Response({"data": serializer.data},
                             status=status.HTTP_200_OK)
         return Response({"data": serializer.errors},
-                        status=status.HTTP_400_BAD_REQUEST, )
+                        status=status.HTTP_400_BAD_REQUEST)
 
 
 class NewPassword(generics.GenericAPIView):
     serializer_class = NewPasswordSerializer
 
     def post(self, request):
-        token = request.data.get('token')
         new_password = request.data.get('new_password')
-
         try:
-            payload = jwt.decode(token, settings.SECRET_KEY)
+            payload = jwt.decode(request.META.get('HTTP_AUTHORIZATION'), settings.SECRET_KEY)
             user = User.objects.get(id=payload['user_id'])
             user.set_password(new_password)
             user.save()

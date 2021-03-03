@@ -76,17 +76,13 @@ class ResetPasswordEmailSerializer(serializers.ModelSerializer):
 
 class NewPasswordSerializer(serializers.ModelSerializer):
     new_password = serializers.CharField(max_length=68, min_length=8)
-    token = serializers.CharField(max_length=200, min_length=6)
 
     class Meta:
         model = User
-        fields = ['new_password', 'token']
+        fields = ['new_password']
 
     def validate(self, attrs):
-        token = attrs.get('token')
         new_password = attrs.get('new_password', '')
-        if token is None:
-            raise serializers.ValidationError("token invalid")
         if new_password is None:
             raise serializers.ValidationError("new password cannot be empty")
         return attrs
