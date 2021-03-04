@@ -32,8 +32,8 @@ class EmailVerificationSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(max_length=255, min_length=3)
-    password = serializers.CharField(max_length=68, min_length=6, write_only=True)
-    username = serializers.EmailField(max_length=255, min_length=3, read_only=True)
+    password = serializers.CharField(max_length=68, min_length=6, required=True)
+    username = serializers.EmailField(max_length=255, min_length=3, required=True)
     token = serializers.CharField(max_length=68, min_length=6, read_only=True)
 
     class Meta:
@@ -50,11 +50,7 @@ class LoginSerializer(serializers.ModelSerializer):
             raise AuthenticationFailed("Account is inactive, contact admin")
         if not user.is_verified:
             raise AuthenticationFailed("Email not verified")
-        return {
-            "email": user.email,
-            "username": user.username,
-            "token": user.tokens()
-        }
+        return attrs
 
 
 class ResetPasswordEmailSerializer(serializers.ModelSerializer):

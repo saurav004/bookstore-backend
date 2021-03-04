@@ -7,22 +7,28 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics, status
+from .JWTAuthentication import JWTAuth
+
+from .middlewares import TokenAuthentication
 from .serializers import RegisterSerializer, EmailVerificationSerializer, LoginSerializer, ResetPasswordEmailSerializer, \
     NewPasswordSerializer, ChangePasswordSerializer, LogoutSerializer
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
 from django.contrib.sites.shortcuts import get_current_site
-from django.conf import settings
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .tasks import send_email
 import logging
+import sys
+
+sys.path.append('..')
+from BookStore import settings
 
 logger = logging.getLogger('django')
 
 # Connect to our Redis instance
-redis_instance = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT)
+redis_instance = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT,  charset="utf-8", decode_responses=True)
 
 
 class RegisterView(generics.GenericAPIView):
@@ -110,12 +116,15 @@ class LoginAPIView(generics.GenericAPIView):
         try:
             serializer = self.serializer_class(data=request.data)
             serializer.is_valid(raise_exception=True)
-            user_data = serializer.data
-            redis_instance.hmset('user_token', {"auth": str(user_data['token'])})
-            redis_instance.expire(user_data['email'], time=datetime.timedelta(days=2))
-            logger.info(redis_instance.hmget(user_data['email'], 'auth'))
+            user_data = serializer.validated_data
+            jwt_token = JWTAuth.get_token(email=user_data.get('email'), password=user_data.get('password'))
+            redis_instance.hset('user_token', user_data['email'], jwt_token)
+            redis_instance.expire('user_token', time=datetime.timedelta(days=2))
+            print(redis_instance.hgetall('user_token'))
+            logger.info(f"{redis_instance.hget('user_name', jwt_token)}")
             response = Response({'data': f'You are logged in successfully'}, status=status.HTTP_200_OK,
-                                headers={'Authorization': user_data['token'], 'Access-Control-Expose-Headers': 'Authorization'})
+                                headers={'Authorization': jwt_token,
+                                         'Access-Control-Expose-Headers': 'Authorization'})
             return response
         except Exception as e:
             return Response({"data": "unauthorized"},
@@ -166,6 +175,7 @@ class NewPassword(generics.GenericAPIView):
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@method_decorator(TokenAuthentication, name='dispatch')
 class ChangeUserPassword(generics.GenericAPIView):
     serializer_class = ChangePasswordSerializer
 
@@ -203,6 +213,7 @@ class ChangeUserPassword(generics.GenericAPIView):
                             status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@method_decorator(TokenAuthentication, name='dispatch')
 class LogoutUser(generics.GenericAPIView):
     serializer_class = LogoutSerializer
 
@@ -213,25 +224,18 @@ class LogoutUser(generics.GenericAPIView):
         :return: status code and success/failure message
         """
         try:
-            payload = jwt.decode(request.META.get('HTTP_AUTHORIZATION'), settings.SECRET_KEY)
-            user = User.objects.get(id=payload['user_id'])
+            user = request.META.get('user')
             if user:
-                if redis_instance.hmget('user_token', user.email):
-                    redis_instance.delete(user.email)
-                    logger.info(f"token deleted {redis_instance.delete(user.email)}")
-                    logger.info('logout successful')
+                if redis_instance.hget('user_token', user.email):
+                    redis_instance.hdel('user_token', user.email)
+                    print(redis_instance.hgetall('user_token'))
+                    logger.info('logout successful, token deleted')
                     return Response({"data": 'you are logged out successfully'},
-                                    status=status.HTTP_400_BAD_REQUEST)
+                                    status=status.HTTP_200_OK)
                 else:
                     return Response(
                         {"data": 'user needs to be logged in to logout'},
                         status=status.HTTP_400_BAD_REQUEST)
-        except jwt.ExpiredSignatureError:
-            return Response({"data": 'token Expired'},
-                            status=status.HTTP_400_BAD_REQUEST)
-        except jwt.exceptions.DecodeError:
-            return Response({"data": 'Invalid Token'},
-                            status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.exception(e)
             return Response({"data": 'Something went wrong, try again later'},
